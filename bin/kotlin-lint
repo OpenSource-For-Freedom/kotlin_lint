@@ -26,17 +26,23 @@ else
 fi
 [[ -n ${NO_COLOR:-} ]] && GREEN='' PURPLE='' DIM='' BOLD='' RED='' CYAN='' RESET=''
 
-# The logo: robot (left 26 columns) in Android green, wordmark in Kotlin purple, tagline dimmed.
+# The logo (assets/logo.txt): the robot (left 29 columns) in Android green, the wordmark in
+# Kotlin purple, the engines line dimmed and the motto in bold.
 logo() {
-  local line left right
+  local line left right style
   while IFS= read -r line || [[ -n $line ]]; do
-    left=${line:0:26} right=${line:26}
-    if [[ $right == *"ktlint +"* || $right == *"same results"* ]]; then
-      printf '%s%s%s%s%s%s\n' "$GREEN" "$left" "$RESET" "$DIM" "$right" "$RESET"
-    else
-      printf '%s%s%s%s%s%s\n' "$GREEN" "$left" "$RESET" "$PURPLE" "$right" "$RESET"
-    fi
+    left=${line:0:29} right=${line:29}
+    case $right in
+      *"ktlint +"*) style=$DIM ;;
+      *"Same system"*) style=$BOLD ;;
+      *) style=$PURPLE ;;
+    esac
+    printf '%s%s%s%s%s%s\n' "$GREEN" "$left" "$RESET" "$style" "$right" "$RESET"
   done <"$LOGO"
+}
+
+banner() {
+  logo
   printf '%s  v%s%s\n\n' "$DIM" "$VERSION" "$RESET"
 }
 
@@ -135,7 +141,7 @@ selftest() {
 
 menu() {
   local choice dir
-  logo
+  banner
   cat <<EOF
   ${BOLD}What do you want to do?${RESET}
 
@@ -165,13 +171,14 @@ EOF
 case ${1:-} in
   "")
     if [[ -t 0 && -t 1 ]]; then menu
-    else logo; usage; fi
+    else banner; usage; fi
     ;;
   menu) menu ;;
   lint) lint "${2:-.}" ;;
   fix) fix "${2:-.}" ;;
   selftest) selftest ;;
   version | --version | -v) version ;;
-  help | --help | -h) logo; usage ;;
+  help | --help | -h) banner; usage ;;
+  logo) logo ;;
   *) echo "${RED}unknown command: $1${RESET}" >&2; usage >&2; exit 2 ;;
 esac

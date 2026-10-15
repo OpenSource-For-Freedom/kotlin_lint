@@ -1,44 +1,90 @@
 #!/usr/bin/env python3
-"""Render assets/logo.txt as assets/logo.svg (a terminal-style banner for the README).
+"""Render the README art from the CLI's own colored output.
 
-Same colors as the CLI: robot in Android green, wordmark in Kotlin purple, tagline dimmed.
-Run after editing logo.txt:  python3 scripts/render-logo.py
-The self-test checks the SVG still matches logo.txt.
+  assets/logo.svg   `kotlin-lint logo`        (top of the README)
+  assets/menu.svg   `kotlin-lint menu` screen (the "Use it locally" section)
+
+Both are terminal-style SVGs with exactly the CLI's colors, so the README shows what the
+terminal shows. Run after changing assets/logo.txt or the menu:
+    python3 scripts/render-logo.py
+The self-test fails if an SVG's text no longer matches the CLI output.
 """
+import os
+import re
+import subprocess
 from pathlib import Path
-from xml.sax.saxutils import escape as xml_escape
-
-
-def escape(text):
-    # Non-breaking spaces: SVG renderers collapse runs of normal spaces, which would
-    # squash the ASCII art. NBSP has the same width in a monospace font.
-    return xml_escape(text).replace(" ", "&#160;")
 
 ROOT = Path(__file__).resolve().parent.parent
-ROBOT_COLS = 26
-GREEN, PURPLE, DIM, BG = "#3DDC84", "#A97BFF", "#8B949E", "#0D1117"
+CLI = ROOT / "bin" / "kotlin-lint"
+
+FG, BG = "#E6EDF3", "#0D1117"
+SGR = {  # ANSI SGR code -> SVG attributes (same palette as the CLI)
+    "38;5;78": {"fill": "#3DDC84"},  # Android green
+    "38;5;99": {"fill": "#A97BFF"},  # Kotlin purple
+    "2": {"fill": "#8B949E"},        # dim
+    "1": {"font-weight": "bold"},
+    "31": {"fill": "#FF6B6B"},
+    "36": {"fill": "#56D4DD"},
+}
 FONT, LINE, CHAR = 14, 18, 8.43  # px; CHAR is the advance of a 14px monospace glyph
 
-lines = (ROOT / "assets/logo.txt").read_text().rstrip("\n").split("\n")
-cols = max(len(l) for l in lines)
-pad_x, top = 24, 48
-width = int(pad_x * 2 + cols * CHAR)
-height = top + LINE * len(lines) + 24
 
-out = [
-    f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="kotlin-lint: Android robot logo. ktlint + detekt + Compose rules for Android">',
-    f'<rect width="{width}" height="{height}" rx="10" fill="{BG}"/>',
-    '<circle cx="20" cy="18" r="6" fill="#FF5F56"/><circle cx="40" cy="18" r="6" fill="#FFBD2E"/><circle cx="60" cy="18" r="6" fill="#27C93F"/>',
-    f'<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, \'DejaVu Sans Mono\', monospace" font-size="{FONT}">',
-]
-for i, line in enumerate(lines):
-    left, right = line[:ROBOT_COLS], line[ROBOT_COLS:]
-    right_color = DIM if ("ktlint +" in right or "same results" in right) else PURPLE
-    y = top + i * LINE
-    out.append(
-        f'<text x="{pad_x}" y="{y}"><tspan fill="{GREEN}">{escape(left)}</tspan>'
-        f'<tspan fill="{right_color}">{escape(right)}</tspan></text>'
-    )
-out += ["</g>", "</svg>", ""]
-(ROOT / "assets/logo.svg").write_text("\n".join(out))
-print(f"wrote assets/logo.svg ({width}x{height})")
+def cli(*args, stdin=""):
+    env = dict(os.environ, FORCE_COLOR="1")
+    env.pop("NO_COLOR", None)
+    return subprocess.run(["bash", str(CLI), *args], input=stdin, capture_output=True,
+                          text=True, env=env, check=False).stdout
+
+
+def esc(text):
+    # Non-breaking spaces: SVG renderers collapse runs of normal spaces, which would
+    # squash the ASCII art. NBSP has the same width in a monospace font.
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace(" ", "&#160;"))
+
+
+def to_svg(ansi, label):
+    lines = ansi.rstrip("\n").split("\n")
+    rows, width_cols = [], 0
+    for line in lines:
+        attrs, spans, col = {}, [], 0
+        for part in re.split(r"(\x1b\[[0-9;]*m)", line):
+            m = re.fullmatch(r"\x1b\[([0-9;]*)m", part)
+            if m:
+                attrs = {} if m.group(1) in ("", "0") else {**attrs, **SGR.get(m.group(1), {})}
+            elif part:
+                a = "".join(f' {k}="{v}"' for k, v in attrs.items())
+                spans.append(f"<tspan{a}>{esc(part)}</tspan>")
+                col += len(part)
+        rows.append("".join(spans))
+        width_cols = max(width_cols, col)
+    pad_x, top = 24, 48
+    width = int(pad_x * 2 + width_cols * CHAR) + 16  # +16: glyph widths vary a little by font
+    height = top + LINE * len(rows) + 16
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="{label}">',
+        f'<rect width="{width}" height="{height}" rx="10" fill="{BG}"/>',
+        '<circle cx="20" cy="18" r="6" fill="#FF5F56"/><circle cx="40" cy="18" r="6" fill="#FFBD2E"/>'
+        '<circle cx="60" cy="18" r="6" fill="#27C93F"/>',
+        f'<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, \'DejaVu Sans Mono\', monospace" '
+        f'font-size="{FONT}" fill="{FG}">',
+    ]
+    out += [f'<text x="{pad_x}" y="{top + i * LINE}">{r}</text>' for i, r in enumerate(rows)]
+    out += ["</g>", "</svg>", ""]
+    return "\n".join(out)
+
+
+def main():
+    logo = cli("logo")
+    menu = cli("menu", stdin="q\n").replace("  Bye!\n", "").rstrip("\n") + "\n"
+    for name, text, label in [
+        ("logo.svg", logo, "kotlin-lint: the Android robot. ktlint + detekt + Compose rules for Android. Same system, new rules."),
+        ("menu.svg", menu, "kotlin-lint menu: 1 Lint, 2 Fix, 3 Self-test, 4 Version, 5 Help, q Quit"),
+    ]:
+        (ROOT / "assets" / name).write_text(to_svg(text, label))
+        print(f"wrote assets/{name}")
+
+
+if __name__ == "__main__":
+    main()

@@ -8,7 +8,7 @@
 #   3. Fix          ktlint --format output equals tests/format/Messy.formatted.kt and only
 #                   unfixable findings remain.
 #   4. Tooling      a wrong checksum is refused; a missing engine report is an error, never "clean".
-#   5. CLI          bin/kotlin-lint: logo (terminal, README SVG), menu, lint/fix exit codes and
+#   5. CLI          bin/kotlin-lint: logo and menu (terminal and README SVGs), lint/fix exit codes and
 #                   output, NO_COLOR, and a project outside this repo (Android defaults, build/ skipped).
 #
 # Runs the same way locally and in CI, on Linux, macOS and Windows (Git Bash):
@@ -152,11 +152,20 @@ NO_COLOR=1 "$CLI" help >"$WORK/help.out" 2>&1 && rc=0 || rc=$?
 head -n "$LOGO_LINES" "$WORK/help.out" | cmp -s - "$ROOT/assets/logo.txt" && same=true || same=false
 cli_check "\`kotlin-lint help\` prints the logo and usage (exit $rc)" "$(is test "$rc" -eq 0 -a "$same" = true)"
 
-# The README shows assets/logo.svg, and the SVG's text is exactly assets/logo.txt.
-sed -n 's:.*<text[^>]*>\(.*\)</text>.*:\1:p' "$ROOT/assets/logo.svg" | sed -e 's/<[^>]*>//g' \
-  -e 's/&#160;/ /g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g' | sed 's/ *$//' >"$WORK/svg.txt"
-grep -q 'assets/logo.svg' "$ROOT/README.md" && cmp -s "$WORK/svg.txt" "$ROOT/assets/logo.txt" && same=true || same=false
-cli_check "README logo (\`assets/logo.svg\`) matches the CLI logo" "$same"
+# The README images are the CLI's own output: their text must equal what the CLI prints.
+svg_text() {
+  sed -n 's:.*<text[^>]*>\(.*\)</text>.*:\1:p' "$1" | sed -e 's/<[^>]*>//g' \
+    -e 's/&#160;/ /g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g' | sed 's/ *$//'
+}
+svg_text "$ROOT/assets/logo.svg" >"$WORK/svg.logo"
+NO_COLOR=1 "$CLI" logo | sed 's/ *$//' >"$WORK/cli.logo"
+grep -q 'assets/logo.svg' "$ROOT/README.md" && cmp -s "$WORK/svg.logo" "$WORK/cli.logo" && same=true || same=false
+cli_check "README logo (\`assets/logo.svg\`) matches \`kotlin-lint logo\`" "$same"
+svg_text "$ROOT/assets/menu.svg" >"$WORK/svg.menu"
+printf 'q\n' | NO_COLOR=1 "$CLI" menu | grep -v 'Bye!' | sed 's/ *$//' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' >"$WORK/cli.menu"
+grep -q 'assets/menu.svg' "$ROOT/README.md" && cmp -s "$WORK/svg.menu" "$WORK/cli.menu" && same=true || same=false
+cli_check "README menu (\`assets/menu.svg\`) matches the \`kotlin-lint\` menu" "$same"
+if [[ $same == false ]]; then diff "$WORK/cli.menu" "$WORK/svg.menu" >"$WORK/menu.diff" || true; block "README menu differs from the CLI (run python3 scripts/render-logo.py)" "$WORK/menu.diff"; fi
 
 # No color codes when NO_COLOR is set or output is not a terminal; colors with FORCE_COLOR.
 esc=$'\e'

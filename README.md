@@ -1,7 +1,7 @@
 # kotlin_lint
 
 <p align="center">
-  <img src="assets/logo.svg" alt="kotlin-lint: Android robot logo. ktlint + detekt + Compose rules for Android" width="671">
+  <img src="assets/logo.svg" alt="kotlin-lint: the Android robot. ktlint + detekt + Compose rules for Android. Same system, new rules.">
 </p>
 
 **One linter for Kotlin Android apps that runs the same on your laptop and in GitHub Actions.**
@@ -53,16 +53,9 @@ cd your-android-app
 
 Running it with no command in a terminal opens the menu:
 
-```text
-  What do you want to do?
-
-    1) Lint       check Kotlin files for problems
-    2) Fix        auto-format Kotlin files
-    3) Self-test  prove every scan feature works
-    4) Version    show engine versions
-    5) Help       show all commands
-    q) Quit
-```
+<p align="center">
+  <img src="assets/menu.svg" alt="kotlin-lint menu: 1 Lint, 2 Fix, 3 Self-test, 4 Version, 5 Help, q Quit">
+</p>
 
 The output points straight at the problem (from `kotlin-lint lint samples/violations`):
 
@@ -122,9 +115,10 @@ One command checks every scan feature and writes a Markdown report:
 | Scan features | Each case in `tests/cases/` (ktlint formatting, imports, naming, Compose rules, detekt bugs, complexity and style, the Android defaults, `@Suppress`, `build.gradle.kts`, Kotlin under `src/main/java`) produces **exactly** the findings in its `expected.txt`, down to the rule and line. |
 | Fix | `fix` output matches a reviewed golden file, and only unfixable findings remain. |
 | Tooling | A download with the wrong checksum is refused. A linter that produces no report is an error, never a pass. |
-| Command line | The logo (terminal and this README), the menu, `lint` and `fix` exit codes and output, `NO_COLOR`, and a project outside this repo. |
+| Command line | The logo and menu (terminal and this README's images), `lint` and `fix` exit codes and output, `NO_COLOR`, and a project outside this repo. |
 
 CI runs the same script on Linux, macOS and Windows and shows the report in the job summary.
 After an intended rule change, `UPDATE_EXPECTED=1 ./scripts/selftest.sh` rewrites the
-`expected.txt` files. Review that diff before committing. After editing `assets/logo.txt`,
-run `python3 scripts/render-logo.py` to refresh the README logo.
+`expected.txt` files. Review that diff before committing. The README images are rendered
+from the CLI's own colored output: after changing `assets/logo.txt` or the menu, run
+`python3 scripts/render-logo.py`.
