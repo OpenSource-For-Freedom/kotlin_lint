@@ -1,0 +1,4 @@
+# LF everywhere, including Windows checkouts: .editorconfig sets end_of_line = lf, ktlint
+# enforces it, and the --fix golden file is compared byte for byte.
+* text=auto eol=lf
+*.jar binary

@@ -81,7 +81,7 @@ for dir in "$ROOT"/tests/cases/*/; do
     { grep '^#' "$expected_file" 2>/dev/null || true; cat "$WORK/actual-$case"; } >"$expected_file.new"
     mv "$expected_file.new" "$expected_file"
   fi
-  { grep -v -e '^#' -e '^$' "$expected_file" || true; } | LC_ALL=C sort -u >"$WORK/expected-$case"
+  { tr -d '\r' <"$expected_file" | grep -v -e '^#' -e '^$' || true; } | LC_ALL=C sort -u >"$WORK/expected-$case"
   LC_ALL=C comm -23 "$WORK/expected-$case" "$WORK/actual-$case" | sed 's/^/missing:    /' >"$WORK/diff-$case"
   LC_ALL=C comm -13 "$WORK/expected-$case" "$WORK/actual-$case" | sed 's/^/unexpected: /' >>"$WORK/diff-$case"
   ok=$([[ ! -s $WORK/diff-$case ]] && echo true || echo false)
@@ -101,7 +101,7 @@ before=$(wc -l <"$WORK/fmt-before" | tr -d ' ')
 format_ktlint selftest-work/format
 lint_ktlint "$WORK/fmt-after" selftest-work/format
 normalize <"$WORK/fmt-after" | sed 's| selftest-work/format/| |' >"$WORK/fmt-actual"
-{ grep -v -e '^#' -e '^$' "$ROOT/tests/format/expected.txt" || true; } | LC_ALL=C sort -u >"$WORK/fmt-expected"
+{ tr -d '\r' <"$ROOT/tests/format/expected.txt" | grep -v -e '^#' -e '^$' || true; } | LC_ALL=C sort -u >"$WORK/fmt-expected"
 same_output=$(cmp -s "$SCRATCH/format/Messy.kt" "$ROOT/tests/format/Messy.formatted.kt" && echo true || echo false)
 same_left=$(cmp -s "$WORK/fmt-actual" "$WORK/fmt-expected" && echo true || echo false)
 result "$same_output"
@@ -173,5 +173,11 @@ echo "tooling: done" >&2
 } >"$REPORT"
 
 [[ -n ${GITHUB_STEP_SUMMARY:-} ]] && cat "$REPORT" >>"$GITHUB_STEP_SUMMARY"
+# Failures also go to the log, so CI output says what broke without opening the report.
+if ! $pass; then
+  echo "FAILED:" >&2
+  printf '%s\n' "${SAMPLE_ROWS[@]}" "${FEATURE_ROWS[@]}" "${OTHER_ROWS[@]}" | grep '❌' >&2 || true
+  [[ ${#DETAILS[@]} -gt 0 ]] && printf '%s\n' "${DETAILS[@]}" | grep -v -e '^<details' -e '^</details' -e '^```' -e '^$' >&2
+fi
 echo "report: $REPORT ($((total - failed))/$total passed)" >&2
 $pass
