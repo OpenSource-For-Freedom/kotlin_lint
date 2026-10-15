@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Render the README art from the CLI's own colored output.
+"""Render the README logo from the CLI's own colored output.
 
-  assets/logo.svg   `kotlin-lint logo`        (top of the README)
-  assets/menu.svg   `kotlin-lint menu` screen (the "Use it locally" section)
+  assets/logo.svg   `kotlin-lint logo` as a terminal-style SVG (top of the README)
 
-Both are terminal-style SVGs with exactly the CLI's colors, so the README shows what the
-terminal shows. Run after changing assets/logo.txt or the menu:
+Exactly the CLI's colors, so the README shows what the terminal shows. Run after
+changing assets/logo.txt:
     python3 scripts/render-logo.py
-The self-test fails if an SVG's text no longer matches the CLI output.
+The self-test fails if the SVG's text no longer matches the CLI output.
 """
 import os
 import re
@@ -76,14 +75,9 @@ def to_svg(ansi, label):
 
 
 def main():
-    logo = cli("logo")
-    menu = cli("menu", stdin="q\n").replace("  Bye!\n", "").rstrip("\n") + "\n"
-    for name, text, label in [
-        ("logo.svg", logo, "kotlin-lint: the Android robot. ktlint + detekt + Compose rules for Android. Same system, new rules."),
-        ("menu.svg", menu, "kotlin-lint menu: 1 Lint, 2 Fix, 3 Self-test, 4 Version, 5 Help, q Quit"),
-    ]:
-        (ROOT / "assets" / name).write_text(to_svg(text, label))
-        print(f"wrote assets/{name}")
+    label = "kotlin-lint: the Android robot. ktlint + detekt + Compose rules for Android. Same system, new rules."
+    (ROOT / "assets" / "logo.svg").write_text(to_svg(cli("logo"), label))
+    print("wrote assets/logo.svg")
 
 
 if __name__ == "__main__":
