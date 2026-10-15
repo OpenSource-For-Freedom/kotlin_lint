@@ -1,6 +1,6 @@
 # kotlin_lint
 
-**One linter for Kotlin Android apps that runs the same on your laptop and in GitHub Actions.**
+**One linter for Kotlin Android apps.**
 
 ## What it is
 
