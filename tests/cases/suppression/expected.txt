@@ -1,0 +1,4 @@
+# @Suppress is honoured by ktlint and detekt; the unsuppressed controls on lines 9 and 11 are still reported.
+detekt FunctionNaming Suppressed.kt:11
+detekt MagicNumber Suppressed.kt:9
+ktlint standard:function-naming Suppressed.kt:11

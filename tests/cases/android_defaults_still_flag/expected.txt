@@ -1,0 +1,7 @@
+# The Android relaxations are scoped to @Composable/@Preview: the same patterns in ordinary code are still reported.
+detekt FunctionNaming Repository.kt:13
+detekt FunctionOnlyReturningConstant Repository.kt:4
+detekt LongParameterList Repository.kt:6
+detekt MagicNumber Repository.kt:13
+detekt UnusedPrivateMember Repository.kt:10
+ktlint standard:function-naming Repository.kt:13

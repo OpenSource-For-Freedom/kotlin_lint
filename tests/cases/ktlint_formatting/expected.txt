@@ -1,0 +1,22 @@
+# ktlint formatting rules with the android_studio style and max_line_length = 120.
+detekt EmptyFunctionBlock Formatting.kt:8
+detekt MaxLineLength Formatting.kt:11
+detekt MayBeConst NoNewline.kt:1
+detekt NewLineAtEndOfFile NoNewline.kt:1
+ktlint standard:binary-expression-wrapping Formatting.kt:11
+ktlint standard:colon-spacing Formatting.kt:1
+ktlint standard:comma-spacing Formatting.kt:1
+ktlint standard:curly-spacing Formatting.kt:1
+ktlint standard:final-newline NoNewline.kt:1
+ktlint standard:function-return-type-spacing Formatting.kt:1
+ktlint standard:function-signature Formatting.kt:1
+ktlint standard:function-signature Formatting.kt:11
+ktlint standard:function-start-of-body-spacing Formatting.kt:1
+ktlint standard:indent Formatting.kt:2
+ktlint standard:max-line-length Formatting.kt:11
+ktlint standard:no-consecutive-blank-lines Formatting.kt:6
+ktlint standard:no-multi-spaces Formatting.kt:8
+ktlint standard:no-semi Formatting.kt:2
+ktlint standard:no-trailing-spaces Formatting.kt:8
+ktlint standard:op-spacing Formatting.kt:2
+ktlint standard:parameter-list-spacing Formatting.kt:1

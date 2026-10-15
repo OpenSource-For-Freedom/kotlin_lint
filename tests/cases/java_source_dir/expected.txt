@@ -1,0 +1,3 @@
+# Kotlin under src/main/java (common in Android projects) is found and linted.
+detekt WildcardImport src/main/java/com/example/Legacy.kt:4
+ktlint standard:no-wildcard-imports src/main/java/com/example/Legacy.kt:4

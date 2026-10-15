@@ -1,0 +1,5 @@
+# Gradle Kotlin DSL (build.gradle.kts) is linted like any Kotlin file.
+detekt WildcardImport build.gradle.kts:1
+ktlint standard:indent build.gradle.kts:8
+ktlint standard:no-wildcard-imports build.gradle.kts:1
+ktlint standard:op-spacing build.gradle.kts:9

@@ -1,0 +1,5 @@
+# detekt style and performance: magic numbers outside Compose, too many returns, spread operator.
+detekt MagicNumber Style.kt:1
+detekt MagicNumber Style.kt:7
+detekt ReturnCount Style.kt:3
+detekt SpreadOperator Style.kt:14
