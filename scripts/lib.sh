@@ -127,13 +127,13 @@ editorconfig_max_line_length() {
   dir=$(cd "$1" && pwd)
   while :; do
     if [[ -f $dir/.editorconfig ]]; then
-      files=("$dir/.editorconfig" "${files[@]}")   # farthest first, so nearer files override
+      files=("$dir/.editorconfig" ${files[@]+"${files[@]}"})   # farthest first, so nearer files override
       grep -qiE '^[[:space:]]*root[[:space:]]*=[[:space:]]*true' "$dir/.editorconfig" && break
     fi
     [[ $dir == / || $dir == "${dir%/*}" || -z $dir ]] && break
     dir=${dir%/*}; [[ -z $dir ]] && dir=/
   done
-  for f in "${files[@]}"; do
+  for f in ${files[@]+"${files[@]}"}; do
     v=$(tr -d '\r' <"$f" | awk '
       /^[[:space:]]*\[/ { s = $0; gsub(/[[:space:]]/, "", s); applies = (s == "[*]" || s ~ /kt/); next }
       applies && tolower($0) ~ /^[[:space:]]*max_line_length[[:space:]]*=/ {
