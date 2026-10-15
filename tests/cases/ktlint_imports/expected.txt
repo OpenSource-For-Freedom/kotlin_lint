@@ -1,0 +1,5 @@
+# Imports: ordering, wildcards (java.util.* is allowed, as in Android Studio) and unused imports (detekt UnusedImports, enabled by our config).
+detekt UnusedImports Imports.kt:3
+detekt WildcardImport Imports.kt:2
+ktlint standard:import-ordering Imports.kt:1
+ktlint standard:no-wildcard-imports Imports.kt:2

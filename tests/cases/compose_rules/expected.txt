@@ -1,0 +1,9 @@
+# Jetpack Compose rules (compose-rules via ktlint): one finding per planted mistake, multi-line messages collapsed.
+compose compose:modifier-missing-check ComposeRules.kt:9
+compose compose:multiple-emitters-check ComposeRules.kt:45
+compose compose:mutable-state-param-check ComposeRules.kt:14
+compose compose:naming-check ComposeRules.kt:19
+compose compose:param-order-check ComposeRules.kt:30
+compose compose:preview-public-check ComposeRules.kt:52
+compose compose:remember-missing-check ComposeRules.kt:25
+compose compose:vm-forwarding-check ComposeRules.kt:36

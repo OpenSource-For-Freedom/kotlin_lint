@@ -1,0 +1,2 @@
+# Android defaults: idiomatic Compose code that used to trip ktlint/detekt gives no findings
+# (PascalCase composable, 16.dp / Color(0xFF...) literals, 7-parameter composable, private @Preview, theme vals).

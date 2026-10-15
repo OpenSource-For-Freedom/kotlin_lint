@@ -1,0 +1,4 @@
+# detekt complexity: complex condition, cyclomatic complexity, nesting depth.
+detekt ComplexCondition Complexity.kt:2
+detekt CyclomaticComplexMethod Complexity.kt:1
+detekt NestedBlockDepth Complexity.kt:1

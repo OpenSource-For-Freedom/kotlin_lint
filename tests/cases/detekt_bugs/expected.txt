@@ -1,0 +1,5 @@
+# detekt potential bugs, exceptions, empty blocks; rules needing type resolution (!!, unreachable code, Thread.sleep in suspend) are absent until the Gradle plugin (Phase 4).
+detekt EmptyFunctionBlock Money.kt:13
+detekt EqualsWithHashCodeExist Money.kt:1
+detekt SwallowedException Money.kt:8
+detekt TooGenericExceptionCaught Money.kt:8

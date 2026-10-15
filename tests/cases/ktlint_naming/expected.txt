@@ -1,0 +1,9 @@
+# Naming: classes, non-composable functions, constants and properties.
+detekt ClassNaming Naming.kt:1
+detekt FunctionNaming Naming.kt:3
+detekt FunctionOnlyReturningConstant Naming.kt:3
+detekt MayBeConst Naming.kt:8
+detekt TopLevelPropertyNaming Naming.kt:5
+ktlint standard:class-naming Naming.kt:1
+ktlint standard:function-naming Naming.kt:3
+ktlint standard:property-naming Naming.kt:5

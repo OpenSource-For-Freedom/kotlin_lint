@@ -83,11 +83,19 @@ This doesn't need a Gradle build or the Android SDK, so it is much faster than a
 
 ## Try it: the self-test
 
-The repo includes a small Jetpack Compose app (`samples/android_app`) that must lint clean, and
-deliberately bad code (`samples/violations`) that every engine must flag:
+One command checks every scan feature and writes a Markdown report:
 
 ```console
 ./scripts/selftest.sh   # needs bash, curl and a JDK 17+; writes selftest-report.md
 ```
 
-CI runs the same script on Linux, macOS and Windows and shows the Markdown report in the job summary.
+| Part | What it proves |
+|---|---|
+| Samples | A Jetpack Compose app (`samples/android_app`) and a plain Kotlin app lint clean. Deliberately bad code (`samples/violations`) is flagged by every engine. |
+| Scan features | Each case in `tests/cases/` (ktlint formatting, imports, naming, Compose rules, detekt bugs, complexity and style, the Android defaults, `@Suppress`, `build.gradle.kts`, Kotlin under `src/main/java`) produces **exactly** the findings in its `expected.txt`, down to the rule and line. |
+| Fix | `--fix` output matches a reviewed golden file, and only unfixable findings remain. |
+| Tooling | A download with the wrong checksum is refused. A linter that produces no report is an error, never a pass. |
+
+CI runs the same script on Linux, macOS and Windows and shows the report in the job summary.
+After an intended rule change, `UPDATE_EXPECTED=1 ./scripts/selftest.sh` rewrites the
+`expected.txt` files. Review that diff before committing.

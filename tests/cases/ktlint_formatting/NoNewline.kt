@@ -1,0 +1,1 @@
+val noFinalNewline = 1

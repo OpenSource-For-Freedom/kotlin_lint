@@ -1,0 +1,4 @@
+# --fix: everything auto-correctable is fixed (output must equal Messy.formatted.kt);
+# only findings ktlint cannot fix remain.
+ktlint standard:class-naming Messy.kt:4
+ktlint standard:filename Messy.kt:1

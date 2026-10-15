@@ -12,6 +12,9 @@ naming:
     propertyPattern: '[A-Za-z][_A-Za-z0-9]*'
 
 style:
+  # Off in detekt's defaults and gone from ktlint 1.x; Android Studio flags unused imports, so we do too.
+  UnusedImports:
+    active: true
   MagicNumber:
     # 16.dp, 0.5f weights and Color(0xFF...) literals are layout values, not magic numbers.
     ignoreAnnotated: ['Composable', 'Preview']
