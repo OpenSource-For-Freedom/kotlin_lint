@@ -115,7 +115,7 @@ kotlin_lint/
 ├── .pre-commit-hooks.yaml
 ├── .github/kotlin-lint-matcher.json
 ├── Dockerfile
-├── samples/{clean,violations}/ # fixtures for e2e and golden tests
+├── samples/{kotlin_actions,violations}/  # fixtures for e2e and golden tests
 └── .github/workflows/{ci,release}.yml
 ```
 
@@ -135,7 +135,7 @@ kotlin_lint/
 
 - **ci.yml** (push and PR): `./gradlew build` (unit + golden tests + self-lint) on ubuntu,
   macOS and Windows. Also an e2e job that builds the jlink image, runs it against
-  `samples/clean` (expects exit 0) and `samples/violations` (expects exit 1 with the golden
+  `samples/kotlin_actions` (expects exit 0) and `samples/violations` (expects exit 1 with the golden
   output), and runs the Action from `./` against both samples.
 - **release.yml** (on a `v*` tag): build the fat JAR, the jlink archives for each platform
   (a matrix over each OS runner), and the multi-arch Docker image. Then `SHA256SUMS`,
