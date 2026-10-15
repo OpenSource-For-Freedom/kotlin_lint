@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# kotlin-lint: Kotlin lint for Android (ktlint + detekt + Jetpack Compose rules).
+#
+#   kotlin-lint                 logo + interactive menu (in a terminal), otherwise logo + help
+#   kotlin-lint lint [dir]      report problems; exit 1 if any
+#   kotlin-lint fix [dir]       auto-format, then report what is left
+#   kotlin-lint selftest        prove every scan feature works (writes selftest-report.md)
+#   kotlin-lint version | help | menu
+#
+# Works on Linux, macOS and Windows (Git Bash). Requires: bash, curl, a JDK 17+.
+# Colors: on in a terminal; NO_COLOR=1 turns them off, FORCE_COLOR=1 turns them on.
+set -euo pipefail
+
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "$HERE/../scripts/lib.sh"
+LOGO=$ROOT/assets/logo.txt
+VERSION=0.1.0
+
+# ---------------------------------------------------------------- colors
+if [[ -n ${FORCE_COLOR:-} ]] || { [[ -t 1 && -z ${NO_COLOR:-} && ${TERM:-} != dumb ]]; }; then
+  GREEN=$'\e[38;5;78m'    # Android green
+  PURPLE=$'\e[38;5;99m'   # Kotlin purple
+  DIM=$'\e[2m' BOLD=$'\e[1m' RED=$'\e[31m' CYAN=$'\e[36m' RESET=$'\e[0m'
+else
+  GREEN='' PURPLE='' DIM='' BOLD='' RED='' CYAN='' RESET=''
+fi
+[[ -n ${NO_COLOR:-} ]] && GREEN='' PURPLE='' DIM='' BOLD='' RED='' CYAN='' RESET=''
+
+# The logo (assets/logo.txt): the robot (left 29 columns) in Android green, the wordmark in
+# Kotlin purple, the engines line dimmed and the motto in bold.
+logo() {
+  local line left right style
+  while IFS= read -r line || [[ -n $line ]]; do
+    left=${line:0:29} right=${line:29}
+    case $right in
+      *"ktlint +"*) style=$DIM ;;
+      *"Same system"*) style=$BOLD ;;
+      *) style=$PURPLE ;;
+    esac
+    printf '%s%s%s%s%s%s\n' "$GREEN" "$left" "$RESET" "$style" "$right" "$RESET"
+  done <"$LOGO"
+}
+
+banner() {
+  logo
+  printf '%s  v%s%s\n\n' "$DIM" "$VERSION" "$RESET"
+}
+
+usage() {
+  cat <<EOF
+${BOLD}Usage:${RESET} kotlin-lint [command] [dir]
+
+  ${GREEN}lint${RESET} [dir]    Check Kotlin files (*.kt, *.kts). Exit 1 if problems are found.
+  ${GREEN}fix${RESET}  [dir]    Auto-format, then show what still needs a manual fix.
+  ${GREEN}selftest${RESET}      Prove every scan feature works; writes selftest-report.md.
+  ${GREEN}version${RESET}       Show the versions of kotlin-lint and its engines.
+  ${GREEN}help${RESET}          Show this help.
+
+  With no command, a terminal gets an interactive menu.
+  [dir] defaults to the current directory. build/ and generated/ are skipped.
+
+  Defaults: Android Studio style, Jetpack Compose rules, Compose-aware detekt.
+  Your project's own .editorconfig wins for any setting it defines.
+EOF
+}
+
+version() {
+  echo "kotlin-lint $VERSION"
+  echo "  ktlint        $KTLINT_VERSION"
+  echo "  detekt        $DETEKT_VERSION"
+  echo "  compose-rules $COMPOSE_VERSION"
+}
+
+# Turn detekt's checkstyle XML into "path:line:col: message [detekt:Rule]".
+detekt_findings() {
+  local xml=$1 base=$2
+  [[ -f $xml ]] || return 0
+  awk -v base="$base/" '
+    function unescape(s) {
+      gsub(/&quot;/, "\"", s); gsub(/&apos;/, "\047", s); gsub(/&lt;/, "<", s); gsub(/&gt;/, ">", s); gsub(/&amp;/, "\\&", s)
+      return s
+    }
+    function attr(name,   r) {
+      if (match($0, name "=\"[^\"]*\"")) { r = substr($0, RSTART + length(name) + 2, RLENGTH - length(name) - 3); return unescape(r) }
+      return ""
+    }
+    /<file name=/ { file = attr("name"); gsub(/\\/, "/", file); if (index(file, base) == 1) file = substr(file, length(base) + 1) }
+    /<error / {
+      rule = attr("source"); sub(/^detekt\./, "", rule)
+      print file ":" attr("line") ":" attr("column") ": " attr("message") " [detekt:" rule "]"
+    }
+  ' "$xml"
+}
+
+# lint <dir>: print findings, a summary, and return 1 if there are any.
+lint() {
+  local dir=${1:-.} work count k c d base
+  [[ -d $dir ]] || { echo "${RED}not a directory: $dir${RESET}" >&2; return 2; }
+  dir=${dir%/}
+  setup_tools
+  work=$(mktemp -d)
+  BASE=$PWD
+  base=$(native "$PWD"); base=${base//\\//}
+  echo "${DIM}Linting $dir ...${RESET}" >&2
+  lint_ktlint "$work/ktlint" "$dir"
+  lint_detekt "$work/detekt" "$dir"
+  sed -E 's/ \(([a-z-]+:[a-z0-9-]+)\)$/ [\1]/' "$work/ktlint" >"$work/all"
+  detekt_findings "$work/detekt.xml" "$base" >>"$work/all"
+  LC_ALL=C sort -t: -k1,1 -k2,2n -k3,3n "$work/all" | sed -E \
+    -e "s/^([^:]+:[0-9]+:[0-9]+:)/${CYAN//\[/\\[}\1${RESET//\[/\\[}/" \
+    -e "s/ (\[[^]]+\])$/ ${DIM//\[/\\[}\1${RESET//\[/\\[}/"
+  k=$(grep -vc '(compose:' "$work/ktlint" || true)
+  c=$(grep -c '(compose:' "$work/ktlint" || true)
+  d=$(wc -l <"$work/detekt" | tr -d ' ')
+  count=$((k + c + d))
+  rm -rf "$work"
+  echo
+  if [[ $count -eq 0 ]]; then
+    echo "${GREEN}${BOLD}No problems found.${RESET} ${DIM}(ktlint, compose-rules, detekt)${RESET}"
+    return 0
+  fi
+  echo "${RED}${BOLD}$count problem(s)${RESET} ${DIM}(ktlint $k, compose-rules $c, detekt $d)${RESET}"
+  if [[ -n ${FIXED:-} ]]; then echo "${DIM}Formatting is fixed; these need a manual fix.${RESET}"
+  else echo "${DIM}Run 'kotlin-lint fix $dir' to auto-format; the rest need a manual fix.${RESET}"; fi
+  return 1
+}
+
+fix() {
+  local dir=${1:-.}
+  [[ -d $dir ]] || { echo "${RED}not a directory: $dir${RESET}" >&2; return 2; }
+  setup_tools
+  BASE=$PWD
+  echo "${DIM}Formatting ${dir%/} ...${RESET}" >&2
+  format_ktlint "${dir%/}"
+  FIXED=1 lint "$dir"
+}
+
+selftest() {
+  "$ROOT/scripts/selftest.sh"
+}
+
+menu() {
+  local choice dir
+  banner
+  cat <<EOF
+  ${BOLD}What do you want to do?${RESET}
+
+    ${GREEN}1${RESET}) Lint       check Kotlin files for problems
+    ${GREEN}2${RESET}) Fix        auto-format Kotlin files
+    ${GREEN}3${RESET}) Self-test  prove every scan feature works
+    ${GREEN}4${RESET}) Version    show engine versions
+    ${GREEN}5${RESET}) Help       show all commands
+    ${GREEN}q${RESET}) Quit
+
+EOF
+  read -r -p "  Choose [1-5, q]: " choice || choice=q
+  case $choice in
+    1 | 2)
+      read -r -p "  Folder to check [.]: " dir || dir=.
+      echo
+      if [[ $choice == 1 ]]; then lint "${dir:-.}"; else fix "${dir:-.}"; fi
+      ;;
+    3) echo; selftest ;;
+    4) echo; version ;;
+    5) echo; usage ;;
+    q | Q | "") echo "  Bye!" ;;
+    *) echo "${RED}  Unknown choice: $choice${RESET}" >&2; return 2 ;;
+  esac
+}
+
+case ${1:-} in
+  "")
+    if [[ -t 0 && -t 1 ]]; then menu
+    else banner; usage; fi
+    ;;
+  menu) menu ;;
+  lint) lint "${2:-.}" ;;
+  fix) fix "${2:-.}" ;;
+  selftest) selftest ;;
+  version | --version | -v) version ;;
+  help | --help | -h) banner; usage ;;
+  logo) logo ;;
+  *) echo "${RED}unknown command: $1${RESET}" >&2; usage >&2; exit 2 ;;
+esac
