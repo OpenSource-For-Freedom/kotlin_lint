@@ -2,8 +2,11 @@
 #
 # Pins every engine by version and sha256, downloads into a cache, and exposes:
 #   setup_tools                         download/verify engines, build the Compose ruleset jar
-#   lint_ktlint <out> <paths...>        ktlint + Compose rules, one finding per line
-#   lint_detekt <out> <input>           detekt with config/detekt.yml, one finding per line
+#   lint_ktlint <out> <dir>             ktlint + Compose rules, one finding per line
+#   format_ktlint <dir>                 ktlint --format in place
+#   lint_detekt <out> <dir>             detekt with config/detekt.yml, one finding per line
+#                                       (also <out>.xml, with messages, for the CLI)
+#   <dir> is relative to $BASE (default: this repo). The CLI sets BASE to the current directory.
 #   normalize                           "engine rule file:line" lines, sorted (for exact comparison)
 # Works on Linux, macOS and Windows (Git Bash). Requires: bash, curl, a JDK 17+ (java and jar).
 
@@ -22,6 +25,9 @@ MAVEN=https://repo1.maven.org/maven2
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CACHE=${KOTLIN_LINT_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/kotlin-lint/tools}
 DETEKT_CONFIG=$ROOT/config/detekt.yml
+DEFAULT_EDITORCONFIG=$ROOT/.editorconfig
+# Never lint build output or generated sources.
+EXCLUDES='**/build/**,**/generated/**'
 
 sha256() {
   if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1
@@ -88,35 +94,45 @@ collapse_ktlint() {
   '
 }
 
-# lint_ktlint <out> <dir>: every *.kt and *.kts under <dir> (relative to ROOT).
-lint_ktlint() {
-  local out=$1 dir=$2
-  (cd "$ROOT" && java -jar "$KTLINT" --relative --ruleset="$(native "$COMPOSE_RULES")" \
-    "$dir/**/*.kt" "$dir/**/*.kts" 2>"$out.log") | collapse_ktlint >"$out" || true
-}
-
-# ktlint --format in place on every *.kt and *.kts under <dir>.
-format_ktlint() {
+# ktlint arguments shared by lint and format. --editorconfig supplies the Android defaults
+# only for properties the project's own .editorconfig files do not set.
+ktlint_args() {
   local dir=$1
-  (cd "$ROOT" && java -jar "$KTLINT" --format --relative --ruleset="$(native "$COMPOSE_RULES")" \
-    "$dir/**/*.kt" "$dir/**/*.kts" >/dev/null 2>&1) || true
+  printf '%s\n' --relative --ruleset="$(native "$COMPOSE_RULES")" \
+    --editorconfig="$(native "$DEFAULT_EDITORCONFIG")" \
+    "$dir/**/*.kt" "$dir/**/*.kts" "!**/build/**" "!**/generated/**"
 }
 
-# lint_detekt <out> <input>: <input> is relative to ROOT.
+# lint_ktlint <out> <dir>: every *.kt and *.kts under <dir>.
+lint_ktlint() {
+  local out=$1 dir=$2 args=()
+  while IFS= read -r a; do args+=("$a"); done < <(ktlint_args "$dir")
+  (cd "${BASE:-$ROOT}" && java -jar "$KTLINT" "${args[@]}" 2>"$out.log") | collapse_ktlint >"$out" || true
+}
+
+# format_ktlint <dir>: ktlint --format in place on every *.kt and *.kts under <dir>.
+format_ktlint() {
+  local dir=$1 args=()
+  while IFS= read -r a; do args+=("$a"); done < <(ktlint_args "$dir")
+  (cd "${BASE:-$ROOT}" && java -jar "$KTLINT" --format "${args[@]}" >/dev/null 2>&1) || true
+}
+
+# lint_detekt <out> <dir>
 lint_detekt() {
-  local out=$1 input=$2 raw="$1.raw" root
-  root=$(native "$ROOT")
-  rm -f "$raw"
-  (cd "$ROOT" && java -jar "$DETEKT" --input "$input" --base-path "$root" \
+  local out=$1 input=$2 raw="$1.raw" base root
+  base=${BASE:-$ROOT}
+  root=$(native "$base")
+  rm -f "$raw" "$out.xml"
+  (cd "$base" && java -jar "$DETEKT" --input "$input" --base-path "$root" --excludes "$EXCLUDES" \
     --config "$(native "$DETEKT_CONFIG")" --build-upon-default-config \
-    --report "txt:$(native "$raw")" >"$out.log" 2>&1) || true
+    --report "txt:$(native "$raw")" --report "xml:$(native "$out.xml")" >"$out.log" 2>&1) || true
   # No report means detekt did not run; never read that as "0 findings".
   if [[ ! -f $raw ]]; then
     echo "detekt produced no report for $input:" >&2
     cat "$out.log" >&2
     exit 3
   fi
-  sed -E -e 's/ - Signature=.*$//' -e 's|\\|/|g' -e "s|$root/||" -e "s|$ROOT/||" "$raw" \
+  sed -E -e 's/ - Signature=.*$//' -e 's|\\|/|g' -e "s|$root/||" -e "s|$base/||" "$raw" \
     | grep -v '^$' >"$out" || true
 }
 

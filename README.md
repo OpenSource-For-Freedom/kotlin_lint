@@ -1,5 +1,9 @@
 # kotlin_lint
 
+<p align="center">
+  <img src="assets/logo.svg" alt="kotlin-lint: Android robot logo. ktlint + detekt + Compose rules for Android" width="671">
+</p>
+
 **One linter for Kotlin Android apps that runs the same on your laptop and in GitHub Actions.**
 
 ## What it is
@@ -25,49 +29,62 @@ Android teams usually wire ktlint, detekt and Compose rules together by hand, th
 ## What it does
 
 - Lints every `*.kt` and `*.kts` file, including Kotlin under `src/main/java` and your `build.gradle.kts` files
+- Skips `build/` and `generated/` folders
 - Uses Android Studio's formatting style, so *Reformat Code* and the linter agree
 - Checks Jetpack Compose code against the Compose API guidelines
-- Prints `file:line:col: message`, which shows up as inline annotations on pull requests
-- Fixes formatting automatically with `--fix`
+- Prints `file:line:col: message [rule]` and exits `1` when it finds problems, so CI fails the build
+- Fixes formatting automatically with `kotlin-lint fix`
 - Pins and checksum-verifies every engine it downloads
 
 It does not replace **Android Lint**. Keep running `./gradlew lint` for Android-specific checks
 (manifest, resources, API levels).
 
-## Status
-
-> **Early development.** The Android defaults and the self-test below work today.
-> The `kotlin-lint` command and the GitHub Action are being built. See the
-> [build plan](docs/BUILD_PLAN.md). Sections marked *planned* show how they will work.
-
 ## Use it locally
 
-**Planned:**
+You need `bash`, `curl` and a JDK 17+. On Windows, use Git Bash.
 
 ```console
-kotlin-lint            # lint the current project
-kotlin-lint --fix      # fix formatting
+git clone https://github.com/opensource-for-freedom/kotlin_lint.git
+cd your-android-app
+../kotlin_lint/bin/kotlin-lint            # logo + menu
+../kotlin_lint/bin/kotlin-lint lint       # check the current project
+../kotlin_lint/bin/kotlin-lint fix        # auto-format, then show what is left
 ```
 
-**Today:** copy [`.editorconfig`](.editorconfig) and [`config/detekt.yml`](config/detekt.yml) into your
-Android project root. Then run ktlint and detekt with them (needs Java 17+):
+Running it with no command in a terminal opens the menu:
 
-```console
-ktlint "**/*.kt" "**/*.kts"
-detekt --config config/detekt.yml --build-upon-default-config
+```text
+  What do you want to do?
+
+    1) Lint       check Kotlin files for problems
+    2) Fix        auto-format Kotlin files
+    3) Self-test  prove every scan feature works
+    4) Version    show engine versions
+    5) Help       show all commands
+    q) Quit
 ```
 
-For the Compose checks, add the [compose-rules](https://mrmans0n.github.io/compose-rules/) ktlint
-ruleset to your ktlint setup. Android Studio reads the same `.editorconfig`, so the editor and the
-linter agree.
+The output points straight at the problem (from `kotlin-lint lint samples/violations`):
+
+```text
+samples/violations/src/main/kotlin/ComposeViolations.kt:10:5: This @Composable function emits content but doesn't have a modifier parameter. [compose:modifier-missing-check]
+samples/violations/src/main/kotlin/Violations.kt:9:1: Unexpected indentation (2) (should be 4) [standard:indent]
+samples/violations/src/main/kotlin/Violations.kt:11:14: This expression contains a magic number. Consider defining it to a well named constant. [detekt:MagicNumber]
+...
+
+31 problem(s) (ktlint 17, compose-rules 5, detekt 9)
+```
+
+Your project's own `.editorconfig` wins for any setting it defines. Anything it leaves out comes
+from the Android defaults in [`.editorconfig`](.editorconfig) and [`config/detekt.yml`](config/detekt.yml).
 
 ## Use it in GitHub Actions
 
-**Planned:**
+Add this workflow to your Android app:
 
 ```yaml
-# .github/workflows/lint.yml
-name: Lint
+# .github/workflows/kotlin-lint.yml
+name: Kotlin lint
 on: [push, pull_request]
 
 jobs:
@@ -75,27 +92,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: opensource-for-freedom/kotlin_lint@v1
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Lint Kotlin
+        run: |
+          git clone --depth 1 https://github.com/opensource-for-freedom/kotlin_lint.git "$RUNNER_TEMP/kotlin_lint"
+          "$RUNNER_TEMP/kotlin_lint/bin/kotlin-lint" lint
 ```
 
-Problems appear as annotations on the pull request, and the job fails if any are found.
+The job fails when problems are found, and the log lists each one as `file:line:col`.
 This doesn't need a Gradle build or the Android SDK, so it is much faster than a full Android build.
+
+*Planned:* a one-line `uses: opensource-for-freedom/kotlin_lint@v1` Action with inline PR
+annotations. See the [build plan](docs/BUILD_PLAN.md).
 
 ## Try it: the self-test
 
 One command checks every scan feature and writes a Markdown report:
 
 ```console
-./scripts/selftest.sh   # needs bash, curl and a JDK 17+; writes selftest-report.md
+./bin/kotlin-lint selftest   # same as ./scripts/selftest.sh; writes selftest-report.md
 ```
 
 | Part | What it proves |
 |---|---|
 | Samples | A Jetpack Compose app (`samples/android_app`) and a plain Kotlin app lint clean. Deliberately bad code (`samples/violations`) is flagged by every engine. |
 | Scan features | Each case in `tests/cases/` (ktlint formatting, imports, naming, Compose rules, detekt bugs, complexity and style, the Android defaults, `@Suppress`, `build.gradle.kts`, Kotlin under `src/main/java`) produces **exactly** the findings in its `expected.txt`, down to the rule and line. |
-| Fix | `--fix` output matches a reviewed golden file, and only unfixable findings remain. |
+| Fix | `fix` output matches a reviewed golden file, and only unfixable findings remain. |
 | Tooling | A download with the wrong checksum is refused. A linter that produces no report is an error, never a pass. |
+| Command line | The logo (terminal and this README), the menu, `lint` and `fix` exit codes and output, `NO_COLOR`, and a project outside this repo. |
 
 CI runs the same script on Linux, macOS and Windows and shows the report in the job summary.
 After an intended rule change, `UPDATE_EXPECTED=1 ./scripts/selftest.sh` rewrites the
-`expected.txt` files. Review that diff before committing.
+`expected.txt` files. Review that diff before committing. After editing `assets/logo.txt`,
+run `python3 scripts/render-logo.py` to refresh the README logo.

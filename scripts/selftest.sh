@@ -8,6 +8,8 @@
 #   3. Fix          ktlint --format output equals tests/format/Messy.formatted.kt and only
 #                   unfixable findings remain.
 #   4. Tooling      a wrong checksum is refused; a missing engine report is an error, never "clean".
+#   5. CLI          bin/kotlin-lint: logo (terminal, README SVG), menu, lint/fix exit codes and
+#                   output, NO_COLOR, and a project outside this repo (Android defaults, build/ skipped).
 #
 # Runs the same way locally and in CI, on Linux, macOS and Windows (Git Bash):
 #   ./scripts/selftest.sh                    # report -> selftest-report.md
@@ -32,6 +34,7 @@ failed=0
 SAMPLE_ROWS=()
 FEATURE_ROWS=()
 OTHER_ROWS=()
+CLI_ROWS=()
 DETAILS=()
 
 # result <ok:true|false>: sets CELL and updates the counters. Never call it inside $(...):
@@ -135,6 +138,70 @@ result "$([[ $rc -eq 3 ]] && echo true || echo false)"
 OTHER_ROWS+=("| Missing detekt report is an error, not a clean result (exit $rc) | $CELL |")
 echo "tooling: done" >&2
 
+# ---------------------------------------------------------------- 5. CLI (bin/kotlin-lint)
+CLI=$ROOT/bin/kotlin-lint
+cli_check() { # cli_check <description> <ok:true|false>
+  result "$2"
+  CLI_ROWS+=("| $1 | $CELL |")
+}
+is() { if "$@"; then echo true; else echo false; fi; }
+LOGO_LINES=$(wc -l <"$ROOT/assets/logo.txt" | tr -d ' ')
+
+# The logo printed by the CLI is exactly assets/logo.txt (colors off).
+NO_COLOR=1 "$CLI" help >"$WORK/help.out" 2>&1 && rc=0 || rc=$?
+head -n "$LOGO_LINES" "$WORK/help.out" | cmp -s - "$ROOT/assets/logo.txt" && same=true || same=false
+cli_check "\`kotlin-lint help\` prints the logo and usage (exit $rc)" "$(is test "$rc" -eq 0 -a "$same" = true)"
+
+# The README shows assets/logo.svg, and the SVG's text is exactly assets/logo.txt.
+sed -n 's:.*<text[^>]*>\(.*\)</text>.*:\1:p' "$ROOT/assets/logo.svg" | sed -e 's/<[^>]*>//g' \
+  -e 's/&#160;/ /g' -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&amp;/\&/g' | sed 's/ *$//' >"$WORK/svg.txt"
+grep -q 'assets/logo.svg' "$ROOT/README.md" && cmp -s "$WORK/svg.txt" "$ROOT/assets/logo.txt" && same=true || same=false
+cli_check "README logo (\`assets/logo.svg\`) matches the CLI logo" "$same"
+
+# No color codes when NO_COLOR is set or output is not a terminal; colors with FORCE_COLOR.
+esc=$'\e'
+plain=$(is test "$(grep -c "$esc" "$WORK/help.out" || true)" -eq 0)
+colored=$(FORCE_COLOR=1 "$CLI" help 2>/dev/null | grep -c "$esc" || true)
+cli_check "\`NO_COLOR\` gives plain text; \`FORCE_COLOR\` gives Android green / Kotlin purple" "$(is test "$plain" = true -a "$colored" -gt 0)"
+
+# Menu: each choice works without a terminal (stdin piped).
+printf 'q\n' | NO_COLOR=1 "$CLI" menu >"$WORK/menu.q" 2>&1 && rc=0 || rc=$?
+cli_check "Menu shows the logo and options; \`q\` quits (exit $rc)" \
+  "$(is test "$rc" -eq 0 -a "$(grep -c -e '1) Lint' -e '2) Fix' -e '3) Self-test' -e 'Bye!' "$WORK/menu.q")" -eq 4)"
+printf '4\n' | NO_COLOR=1 "$CLI" menu >"$WORK/menu.4" 2>&1 && rc=0 || rc=$?
+cli_check "Menu choice \`4\` shows engine versions (exit $rc)" "$(is grep -q "ktlint        $KTLINT_VERSION" "$WORK/menu.4")"
+printf 'z\n' | NO_COLOR=1 "$CLI" menu >/dev/null 2>&1 && rc=0 || rc=$?
+cli_check "Menu rejects an unknown choice (exit $rc)" "$(is test "$rc" -eq 2)"
+"$CLI" bogus >/dev/null 2>&1 && rc=0 || rc=$?
+cli_check "Unknown command is a usage error (exit $rc)" "$(is test "$rc" -eq 2)"
+
+# lint: clean project exits 0; problems exit 1 and every finding is "file:line:col: message [rule]".
+(cd "$ROOT" && NO_COLOR=1 "$CLI" lint samples/android_app >"$WORK/lint.clean" 2>/dev/null) && rc=0 || rc=$?
+grep -q 'No problems found' "$WORK/lint.clean" && clean=true || clean=false
+cli_check "\`lint samples/android_app\`: no problems (exit $rc)" "$(is test "$rc" -eq 0 -a "$clean" = true)"
+(cd "$ROOT" && NO_COLOR=1 "$CLI" lint samples/violations >"$WORK/lint.bad" 2>/dev/null) && rc=0 || rc=$?
+findings=$(grep -cE '^[^ ]+:[0-9]+:[0-9]+: .+ \[[A-Za-z-]+:[A-Za-z0-9-]+\]$' "$WORK/lint.bad" || true)
+summary=$(sed -n 's/^\([0-9]*\) problem(s).*/\1/p' "$WORK/lint.bad")
+cli_check "\`lint samples/violations\`: $findings findings, summary says ${summary:-?}, exit $rc" \
+  "$(is test "$rc" -eq 1 -a "$findings" -gt 0 -a "$findings" = "${summary:-x}")"
+
+# fix: formats like ktlint --format (golden file), then reports only what is left.
+mkdir -p "$SCRATCH/cli-fix"
+cp "$ROOT/tests/format/Messy.kt" "$SCRATCH/cli-fix/"
+(cd "$SCRATCH" && NO_COLOR=1 "$CLI" fix cli-fix >"$WORK/fix.out" 2>/dev/null) && rc=0 || rc=$?
+cli_check "\`fix\` output matches the golden file; leftovers reported (exit $rc)" \
+  "$(is test "$rc" -eq 1 -a "$(cmp -s "$SCRATCH/cli-fix/Messy.kt" "$ROOT/tests/format/Messy.formatted.kt" && echo y)" = y)"
+
+# A project outside this repo, with no .editorconfig: Android defaults apply, build/ is skipped.
+EXT=$(mktemp -d)
+cp -R "$ROOT/samples/android_app" "$EXT/MyApp"
+mkdir -p "$EXT/MyApp/app/build/generated"
+printf 'import java.io.*\nval  x=1\n' >"$EXT/MyApp/app/build/generated/Gen.kt"
+(cd "$EXT/MyApp" && NO_COLOR=1 "$CLI" lint >"$WORK/lint.ext" 2>/dev/null) && rc=0 || rc=$?
+rm -rf "$EXT"
+cli_check "Project outside this repo: Android defaults apply, \`build/\` skipped (exit $rc)" "$(is test "$rc" -eq 0)"
+echo "cli: done" >&2
+
 # ---------------------------------------------------------------- report
 {
   if $pass; then echo "# ✅ kotlin-lint self-test passed ($total/$total)"
@@ -162,6 +229,12 @@ echo "tooling: done" >&2
   echo "| Check | Status |"
   echo "|---|---|"
   printf '%s\n' "${OTHER_ROWS[@]}"
+  echo
+  echo "## Command line (\`bin/kotlin-lint\`)"
+  echo
+  echo "| Check | Status |"
+  echo "|---|---|"
+  printf '%s\n' "${CLI_ROWS[@]}"
   if [[ ${#DETAILS[@]} -gt 0 ]]; then
     echo
     echo "## Failures"
@@ -176,7 +249,7 @@ echo "tooling: done" >&2
 # Failures also go to the log, so CI output says what broke without opening the report.
 if ! $pass; then
   echo "FAILED:" >&2
-  printf '%s\n' "${SAMPLE_ROWS[@]}" "${FEATURE_ROWS[@]}" "${OTHER_ROWS[@]}" | grep '❌' >&2 || true
+  printf '%s\n' "${SAMPLE_ROWS[@]}" "${FEATURE_ROWS[@]}" "${OTHER_ROWS[@]}" "${CLI_ROWS[@]}" | grep '❌' >&2 || true
   [[ ${#DETAILS[@]} -gt 0 ]] && printf '%s\n' "${DETAILS[@]}" | grep -v -e '^<details' -e '^</details' -e '^```' -e '^$' >&2
 fi
 echo "report: $REPORT ($((total - failed))/$total passed)" >&2
