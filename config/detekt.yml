@@ -1,0 +1,29 @@
+# kotlin-lint detekt overrides for Android / Jetpack Compose.
+# Applied on top of detekt's defaults (--build-upon-default-config).
+# Compose-specific checks come from the compose-rules ktlint ruleset, not detekt,
+# so they are reported once.
+
+naming:
+  FunctionNaming:
+    # @Composable functions are PascalCase by convention.
+    ignoreAnnotated: ['Composable']
+  TopLevelPropertyNaming:
+    # Theme tokens such as `val Purple80 = Color(0xFFD0BCFF)`.
+    propertyPattern: '[A-Za-z][_A-Za-z0-9]*'
+
+style:
+  MagicNumber:
+    # 16.dp, 0.5f weights and Color(0xFF...) literals are layout values, not magic numbers.
+    ignoreAnnotated: ['Composable', 'Preview']
+    ignorePropertyDeclaration: true
+  UnusedPrivateMember:
+    # Private @Preview functions are used by Android Studio, not by code.
+    ignoreAnnotated: ['Preview']
+
+complexity:
+  LongParameterList:
+    # Composables take many optional parameters by design.
+    ignoreAnnotated: ['Composable']
+    ignoreDefaultParameters: true
+  LongMethod:
+    ignoreAnnotated: ['Composable']

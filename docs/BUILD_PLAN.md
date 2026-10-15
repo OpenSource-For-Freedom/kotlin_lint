@@ -12,8 +12,28 @@ in the spirit of `actionlint` and `pylint`:
   problem matchers already understand.
 - The GitHub Action is a thin installer around the same binary, never a second implementation.
 
-Under the hood it wraps **ktlint** (style/formatting) and **detekt** (smells, complexity,
-bugs). Users only ever see `kotlin-lint`.
+Under the hood it wraps **ktlint** (style/formatting), **detekt** (smells, complexity,
+bugs) and the **Jetpack Compose rules** (`io.nlopez.compose.rules`). Users only ever see `kotlin-lint`.
+
+## Who it is for: Android developers
+
+The defaults are chosen for Android apps written in Kotlin with Jetpack Compose. Plain
+Kotlin/JVM projects work too.
+
+| Android need | What kotlin-lint does by default |
+|---|---|
+| Agree with Android Studio's formatter | `ktlint_code_style = android_studio`, plus Android Studio's own `ij_kotlin_*` keys in `.editorconfig`, so *Reformat Code* and the linter don't fight |
+| Compose naming (`@Composable fun NotesScreen`) | PascalCase allowed for `@Composable` functions (ktlint `function-naming`, detekt `FunctionNaming`) |
+| Compose layout values (`16.dp`, `Color(0xFF6650A4)`) | detekt `MagicNumber` ignores `@Composable` / `@Preview` and property declarations |
+| Private `@Preview` functions | not reported as unused |
+| Composables with many optional parameters | detekt `LongParameterList` / `LongMethod` relaxed for `@Composable` |
+| Compose correctness | compose-rules: missing `Modifier` parameter, `MutableState` parameters, composable naming, ViewModel forwarding, and more. Run through ktlint only, so each finding is reported once |
+| Kotlin under `src/main/java` | all `*.kt` / `*.kts` files are linted wherever they live, including `build.gradle.kts` |
+| Generated code | `build/`, `generated/`, KSP/kapt output are ignored by default |
+| Android Lint | not replaced. Android Lint needs the AGP build; kotlin-lint covers Kotlin source quality. The Action docs show uploading both SARIF reports side by side |
+
+These defaults ship as `.editorconfig` and `config/detekt.yml` and are exercised by
+`samples/android_app` in the self-test. A project overrides them with its own files.
 
 ## Principles (maintainability)
 
@@ -48,9 +68,9 @@ $ kotlin-lint --version
 pylint finds `pylintrc`). It is optional.
 
 ```yaml
-style: ktlint_official          # or intellij_idea, android_studio
+style: android_studio          # or ktlint_official, intellij_idea
 fail-on: warning                # error | warning | info
-ignore: ["**/generated/**"]
+ignore: ["**/build/**", "**/generated/**"]   # these two are the defaults
 rules:
   ktlint:no-wildcard-imports: off
   detekt:MagicNumber: { severity: info }
@@ -97,7 +117,8 @@ This works on any CI, not only GitHub.
 - `kotlin-lint-fix`: same, with `--fix`.
 - `kotlin-lint-docker`: `language: docker_image`, for people who'd rather not download binaries.
 
-**Gradle plugin** (later phase, kept thin): adds a `kotlinLint` task that calls the same
+**Gradle plugin** (Phase 4, kept thin). Android developers live in Gradle and Android Studio, so
+this matters more for them than for most Kotlin users. It adds a `kotlinLint` task that calls the same
 `core` in-process. Its one extra feature is detekt **type resolution**, which needs the compile
 classpath that only Gradle has. Everything else is identical to the CLI.
 
@@ -153,15 +174,17 @@ kotlin_lint/
 | 1. ktlint MVP | Core, ktlint runner, CLI (`lint`, `--fix`, paths, exit codes, default output), classloader spike | Golden tests on `samples/` pass |
 | 2. detekt | detekt runner, `.kotlin-lint.yaml`, json/sarif/checkstyle, baseline, `--changed-since` | One run, both engines, one report |
 | 3. Portable v1 | jlink archives, fat JAR, install scripts, Action + problem matcher, release.yml | Fresh repo on each OS: one install step, same output locally and in CI |
-| 4. Ecosystem | pre-commit hooks, Docker image, Homebrew/Scoop | Hooks work in a scratch repo |
-| 5. Extras | Custom rules, thin Gradle plugin for type resolution, native-binary evaluation | — |
+| 4. Android Gradle integration | Thin Gradle plugin (`kotlinLint` task wired into `check`, works with AGP multi-module builds and per-variant source sets, detekt type resolution) | `samples/android_app` built with AGP lints through Gradle with the same findings as the CLI |
+| 5. Ecosystem | pre-commit hooks, Docker image, Homebrew/Scoop | Hooks work in a scratch repo |
+| 6. Extras | Custom rules, native-binary evaluation | — |
 
 Phases 0–3 make the first release.
 
 ## Open questions
 
-1. Default style: `ktlint_official` or `intellij_idea`? Which detekt rules are on by default?
+1. Defaults: the self-test uses `android_studio` style plus the Compose overrides above. Which other
+   detekt rules should be off for Android (for example `TooManyFunctions` in ViewModels)?
 2. Minimum JDK for the fat JAR: 17?
 3. License: Apache-2.0 matches ktlint and detekt.
-4. Should the Action pin by full commit SHA in docs examples? That's the stricter bar used in
-   the minecraft repo.
+4. Should the docs examples pin the Action by full commit SHA? This repo's own CI already does.
+5. Kotlin Multiplatform (`commonMain`, `androidMain`, `iosMain`) in scope for v1?

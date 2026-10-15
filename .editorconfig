@@ -1,3 +1,5 @@
+# kotlin-lint defaults for Android projects. Copy into your project root, or let
+# `kotlin-lint --init` write it.
 root = true
 
 [*]
@@ -10,4 +12,10 @@ trim_trailing_whitespace = true
 indent_size = 4
 indent_style = space
 max_line_length = 120
-ktlint_code_style = ktlint_official
+# Matches Android Studio's built-in Kotlin formatter, so "Reformat Code" and the linter agree.
+ktlint_code_style = android_studio
+# Composables are PascalCase by convention (Compose API guidelines).
+ktlint_function_naming_ignore_when_annotated_with = Composable
+# Trailing commas: the norm in Compose code, and Android Studio's own settings keys.
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
