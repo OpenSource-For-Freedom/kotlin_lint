@@ -8,7 +8,9 @@
 #   3. Fix          ktlint --format output equals tests/format/Messy.formatted.kt and only
 #                   unfixable findings remain.
 #   4. Tooling      a wrong checksum is refused; a missing engine report is an error, never "clean".
-#   5. CLI          bin/kotlin-lint: logo (terminal and README SVG), README screenshot, menu, lint/fix exit codes and
+#   5. CLI          bin/kotlin-lint: logo (terminal and README SVG), README screenshot, menu,
+#                   detekt line length from .editorconfig (#3), per-rule summary, --bugs,
+#                   baseline (#4), lint/fix exit codes and
 #                   output, NO_COLOR, and a project outside this repo (Android defaults, build/ skipped).
 #
 # Runs the same way locally and in CI, on Linux, macOS and Windows (Git Bash):
@@ -206,6 +208,54 @@ printf 'import java.io.*\nval  x=1\n' >"$EXT/MyApp/app/build/generated/Gen.kt"
 (cd "$EXT/MyApp" && NO_COLOR=1 "$CLI" lint >"$WORK/lint.ext" 2>/dev/null) && rc=0 || rc=$?
 rm -rf "$EXT"
 cli_check "Project outside this repo: Android defaults apply, \`build/\` skipped (exit $rc)" "$(is test "$rc" -eq 0)"
+# #3: detekt's MaxLineLength follows the project's .editorconfig, like ktlint does.
+EXT=$(mktemp -d)
+mkdir -p "$EXT/app"
+w140=$(printf 'x%.0s' $(seq 110)); w170=$(printf 'y%.0s' $(seq 140))
+printf 'fun width140(): String = "%s"\nfun width170(): String = "%s"\n' "$w140" "$w170" >"$EXT/app/Long.kt"
+line_hits() { # line_hits <max_line_length> -> "ktlint-lines detekt-lines" with MaxLineLength findings
+  printf 'root = true\n[*.{kt,kts}]\nmax_line_length = %s\n' "$1" >"$EXT/.editorconfig"
+  (cd "$EXT" && NO_COLOR=1 "$CLI" lint app >"$WORK/ll.$1" 2>/dev/null) || true
+  echo "$(grep '\[standard:max-line-length\]' "$WORK/ll.$1" | cut -d: -f2 | tr '\n' ',')" \
+       "$(grep '\[detekt:MaxLineLength\]' "$WORK/ll.$1" | cut -d: -f2 | tr '\n' ',')"
+}
+off=$(line_hits off); w160=$(line_hits 160)
+rm -rf "$EXT"
+cli_check "Project \`max_line_length = off\` turns line length off in ktlint and detekt (got: ${off// /|})" "$(is test "$off" = " ")"
+cli_check "Project \`max_line_length = 160\` is used by ktlint and detekt: only the 167-char line (got: ${w160// /|})" "$(is test "$w160" = "2, 2,")"
+
+# #4: per-rule summary; its counts add up to the total.
+sum=$(sed -n '/^By rule/,/^$/p' "$WORK/lint.bad" | awk '$1 ~ /^[0-9]+$/ { s += $1 } END { print s + 0 }')
+cli_check "Every run ends with a per-rule summary (counts add up to $sum of ${summary:-?})" \
+  "$(is test "$(grep -c '^By rule' "$WORK/lint.bad")" -eq 1 -a "$sum" = "${summary:-x}")"
+
+# #4: --bugs shows only likely-bug rules, with no formatting.
+(cd "$ROOT" && NO_COLOR=1 "$CLI" lint --bugs samples/violations >"$WORK/lint.bugs" 2>/dev/null) && rc=0 || rc=$?
+bug_rules >"$WORK/bug-rules"
+tags=$(grep -E '^[^ ]+:[0-9]+:[0-9]+: ' "$WORK/lint.bugs" | sed -E 's/.*\[([^]]+)\]$/\1/' | sort -u)
+outside=$(printf '%s\n' "$tags" | grep -v '^$' | grep -vxF -f "$WORK/bug-rules" || true)
+cli_check "\`lint --bugs\`: only likely-bug rules, no formatting (rules: $(echo $tags), exit $rc)" \
+  "$(is test "$rc" -eq 1 -a -n "$tags" -a -z "$outside")"
+
+# #4: baseline. Known findings are hidden (also after lines move); new ones still fail.
+EXT=$(mktemp -d)
+cp -R "$ROOT/samples/violations" "$EXT/app"
+(cd "$EXT" && NO_COLOR=1 "$CLI" baseline >/dev/null 2>&1)
+(cd "$EXT" && NO_COLOR=1 "$CLI" lint >"$WORK/bl.1" 2>/dev/null) && rc1=0 || rc1=$?
+F=$EXT/app/src/main/kotlin/ComposeViolations.kt
+{ printf '// moved\n// down\n'; cat "$F"; } >"$F.new" && mv "$F.new" "$F"
+(cd "$EXT" && NO_COLOR=1 "$CLI" lint >"$WORK/bl.2" 2>/dev/null) && rc2=0 || rc2=$?
+printf '\nfun risky(s: String): Int {\n    try {\n        return s.length\n    } catch (e: Exception) {\n        return 0\n    }\n}\n' >>"$EXT/app/src/main/kotlin/Violations.kt"
+(cd "$EXT" && NO_COLOR=1 "$CLI" lint >"$WORK/bl.3" 2>/dev/null) && rc3=0 || rc3=$?
+new=$(grep -cE '^[^ ]+:[0-9]+:[0-9]+: ' "$WORK/bl.3" || true)
+swallowed=$(grep -c '\[detekt:SwallowedException\]' "$WORK/bl.3" || true)
+(cd "$EXT" && NO_COLOR=1 "$CLI" lint --no-baseline >"$WORK/bl.4" 2>/dev/null) && rc4=0 || rc4=$?
+all=$(grep -cE '^[^ ]+:[0-9]+:[0-9]+: ' "$WORK/bl.4" || true)
+rm -rf "$EXT"
+cli_check "\`baseline\` then \`lint\`: known findings hidden (exit $rc1), still hidden after lines move (exit $rc2)" \
+  "$(is test "$rc1" -eq 0 -a "$rc2" -eq 0)"
+cli_check "With a baseline, a new bug still fails: $new new finding(s) incl. SwallowedException (exit $rc3); \`--no-baseline\` shows all $all" \
+  "$(is test "$rc3" -eq 1 -a "$swallowed" -eq 1 -a "$new" -le 3 -a "$all" -gt 30 -a "$rc4" -eq 1)"
 echo "cli: done" >&2
 
 # ---------------------------------------------------------------- report

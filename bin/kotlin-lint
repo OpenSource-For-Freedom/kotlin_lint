@@ -51,7 +51,11 @@ usage() {
 ${BOLD}Usage:${RESET} kotlin-lint [command] [dir]
 
   ${GREEN}lint${RESET} [dir]    Check Kotlin files (*.kt, *.kts). Exit 1 if problems are found.
+       --bugs     Only likely bugs (detekt potential-bugs, exceptions, coroutines;
+                  Compose correctness rules). No formatting. See config/bug-rules.txt.
+       --no-baseline  Also show findings recorded in .kotlin-lint-baseline.txt.
   ${GREEN}fix${RESET}  [dir]    Auto-format, then show what still needs a manual fix.
+  ${GREEN}baseline${RESET} [dir] Record today's findings; from then on lint reports only new ones.
   ${GREEN}selftest${RESET}      Prove every scan feature works; writes selftest-report.md.
   ${GREEN}version${RESET}       Show the versions of kotlin-lint and its engines.
   ${GREEN}help${RESET}          Show this help.
@@ -60,7 +64,8 @@ ${BOLD}Usage:${RESET} kotlin-lint [command] [dir]
   [dir] defaults to the current directory. build/ and generated/ are skipped.
 
   Defaults: Android Studio style, Jetpack Compose rules, Compose-aware detekt.
-  Your project's own .editorconfig wins for any setting it defines.
+  Your project's own .editorconfig wins for any setting it defines, for ktlint
+  and for detekt's line length.
 EOF
 }
 
@@ -92,37 +97,141 @@ detekt_findings() {
   ' "$xml"
 }
 
-# lint <dir>: print findings, a summary, and return 1 if there are any.
-lint() {
-  local dir=${1:-.} work count k c d base
-  [[ -d $dir ]] || { echo "${RED}not a directory: $dir${RESET}" >&2; return 2; }
-  dir=${dir%/}
+BASELINE_FILE=.kotlin-lint-baseline.txt
+
+# collect <dir> <out>: every finding under <dir> as "path:line:col: message [engine:rule]",
+# sorted by file and line. Paths are relative to the current directory.
+collect() {
+  local dir=$1 out=$2 work base
   setup_tools
   work=$(mktemp -d)
   BASE=$PWD
   base=$(native "$PWD"); base=${base//\\//}
-  echo "${DIM}Linting $dir ...${RESET}" >&2
   lint_ktlint "$work/ktlint" "$dir"
   lint_detekt "$work/detekt" "$dir"
-  sed -E 's/ \(([a-z-]+:[a-z0-9-]+)\)$/ [\1]/' "$work/ktlint" >"$work/all"
-  detekt_findings "$work/detekt.xml" "$base" >>"$work/all"
-  LC_ALL=C sort -t: -k1,1 -k2,2n -k3,3n "$work/all" | sed -E \
+  {
+    sed -E 's/ \(([a-z-]+:[a-z0-9-]+)\)$/ [\1]/' "$work/ktlint"
+    detekt_findings "$work/detekt.xml" "$base"
+  } | sed 's|^\./||' | LC_ALL=C sort -t: -k1,1 -k2,2n -k3,3n >"$out"
+  rm -rf "$work"
+}
+
+# Baseline entries are "path<TAB>rule<TAB>message": no line numbers, so editing code above a
+# known finding does not bring it back. Each entry hides one matching finding.
+# One awk parser for both writing and matching, so they always agree on the key.
+FINDING_KEY_AWK='
+  function finding_key(line,   path, rest) {
+    if (!match(line, /^[^:]+:[0-9]+:[0-9]+: /)) return ""
+    path = substr(line, 1, index(line, ":") - 1)
+    rest = substr(line, RLENGTH + 1)
+    if (!match(rest, / \[[^]]+\]$/)) return ""
+    return path "\t" substr(rest, RSTART + 2, RLENGTH - 3) "\t" substr(rest, 1, RSTART - 1)
+  }'
+baseline_entries() {
+  awk "$FINDING_KEY_AWK"' { k = finding_key($0); if (k != "") print k }'
+}
+
+# hide_baselined <findings> <baseline> <out>: findings not covered by the baseline.
+hide_baselined() {
+  awk -F'\t' "$FINDING_KEY_AWK"'
+    NR == FNR { sub(/\r$/, ""); if ($0 !~ /^#/ && $0 != "") seen[$0]++; next }
+    { k = finding_key($0); if (k != "" && seen[k] > 0) { seen[k]--; next } print }' "$2" "$1" >"$3"
+}
+
+# rule_summary <findings>: one line per rule, most frequent first.
+rule_summary() {
+  local total rules shown=15
+  total=$(wc -l <"$1" | tr -d ' ')
+  [[ $total -eq 0 ]] && return 0
+  sed -nE 's/.* \[([^]]+)\]$/\1/p' "$1" | LC_ALL=C sort | uniq -c | LC_ALL=C sort -k1,1nr -k2,2 >"$1.rules"
+  rules=$(wc -l <"$1.rules" | tr -d ' ')
+  echo
+  echo "${BOLD}By rule${RESET} ${DIM}($rules rule(s); likely bugs marked *)${RESET}"
+  head -n "$shown" "$1.rules" | while read -r n rule; do
+    case $rule in standard:*) engine=ktlint ;; compose:*) engine=compose-rules ;; *) engine=detekt ;; esac
+    mark=" "; grep -qxF "$rule" "$BUGS_LIST" && mark="${RED}*${RESET}"
+    printf '  %7s %s %-14s %s\n' "$n" "$mark" "$engine" "$rule"
+  done
+  if [[ $rules -gt $shown ]]; then
+    printf '  %7s   %s\n' "$(tail -n +$((shown + 1)) "$1.rules" | awk '{ s += $1 } END { print s }')" \
+      "${DIM}in $((rules - shown)) more rule(s)${RESET}"
+  fi
+}
+
+# lint [--bugs] [--no-baseline] [dir]: print findings and a summary; return 1 if any are left.
+lint() {
+  local dir=. bugs='' use_baseline=1 work count hidden=0 bugcount
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --bugs) bugs=1 ;;
+      --no-baseline) use_baseline='' ;;
+      -*) echo "${RED}unknown option: $1${RESET}" >&2; return 2 ;;
+      *) dir=$1 ;;
+    esac
+    shift
+  done
+  [[ -d $dir ]] || { echo "${RED}not a directory: $dir${RESET}" >&2; return 2; }
+  dir=${dir%/}
+  work=$(mktemp -d)
+  echo "${DIM}Linting $dir ...${RESET}" >&2
+  collect "$dir" "$work/all"
+  BUGS_LIST=$work/bug-rules
+  bug_rules >"$BUGS_LIST"
+
+  if [[ -n $use_baseline && -f $BASELINE_FILE ]]; then
+    hide_baselined "$work/all" "$BASELINE_FILE" "$work/new"
+    hidden=$(( $(wc -l <"$work/all") - $(wc -l <"$work/new") ))
+    mv "$work/new" "$work/all"
+  fi
+  if [[ -n $bugs ]]; then
+    awk 'NR == FNR { bug["[" $0 "]"] = 1; next } { n = split($0, f, " "); if (f[n] in bug) print }' \
+      "$BUGS_LIST" "$work/all" >"$work/bugs"
+    mv "$work/bugs" "$work/all"
+  fi
+
+  sed -E \
     -e "s/^([^:]+:[0-9]+:[0-9]+:)/${CYAN//\[/\\[}\1${RESET//\[/\\[}/" \
-    -e "s/ (\[[^]]+\])$/ ${DIM//\[/\\[}\1${RESET//\[/\\[}/"
-  k=$(grep -vc '(compose:' "$work/ktlint" || true)
-  c=$(grep -c '(compose:' "$work/ktlint" || true)
-  d=$(wc -l <"$work/detekt" | tr -d ' ')
-  count=$((k + c + d))
+    -e "s/ (\[[^]]+\])$/ ${DIM//\[/\\[}\1${RESET//\[/\\[}/" "$work/all"
+  rule_summary "$work/all"
+
+  count=$(wc -l <"$work/all" | tr -d ' ')
+  bugcount=$(awk 'NR == FNR { bug["[" $0 "]"] = 1; next } { n = split($0, f, " "); if (f[n] in bug) c++ } END { print c + 0 }' "$BUGS_LIST" "$work/all")
   rm -rf "$work"
   echo
+  local scope="problem(s)"; [[ -n $bugs ]] && scope="likely bug(s)"
+  local note=""; [[ $hidden -gt 0 ]] && note=" ${DIM}($hidden known finding(s) hidden by $BASELINE_FILE)${RESET}"
   if [[ $count -eq 0 ]]; then
-    echo "${GREEN}${BOLD}No problems found.${RESET} ${DIM}(ktlint, compose-rules, detekt)${RESET}"
+    echo "${GREEN}${BOLD}No $( [[ -n $bugs ]] && echo 'likely bugs' || echo problems ) found.${RESET}$note"
     return 0
   fi
-  echo "${RED}${BOLD}$count problem(s)${RESET} ${DIM}(ktlint $k, compose-rules $c, detekt $d)${RESET}"
-  if [[ -n ${FIXED:-} ]]; then echo "${DIM}Formatting is fixed; these need a manual fix.${RESET}"
-  else echo "${DIM}Run 'kotlin-lint fix $dir' to auto-format; the rest need a manual fix.${RESET}"; fi
+  if [[ -n $bugs ]]; then
+    echo "${RED}${BOLD}$count likely bug(s)${RESET}$note"
+  else
+    echo "${RED}${BOLD}$count problem(s)${RESET}, ${BOLD}$bugcount likely bug(s)${RESET} ${DIM}(see them alone: kotlin-lint lint --bugs $dir)${RESET}$note"
+    if [[ -n ${FIXED:-} ]]; then echo "${DIM}Formatting is fixed; these need a manual fix.${RESET}"
+    else echo "${DIM}Run 'kotlin-lint fix $dir' to auto-format; the rest need a manual fix.${RESET}"; fi
+  fi
   return 1
+}
+
+# baseline [dir]: record today's findings so lint reports only new ones from now on.
+baseline() {
+  local dir=${1:-.} work count
+  [[ -d $dir ]] || { echo "${RED}not a directory: $dir${RESET}" >&2; return 2; }
+  dir=${dir%/}
+  work=$(mktemp -d)
+  echo "${DIM}Recording findings in $dir ...${RESET}" >&2
+  collect "$dir" "$work/all"
+  {
+    echo "# kotlin-lint baseline: known findings that 'kotlin-lint lint' does not report."
+    echo "# One per line: path<TAB>rule<TAB>message. No line numbers, so edits above a finding"
+    echo "# do not bring it back. Fixed findings can be deleted, or rerun 'kotlin-lint baseline'."
+    baseline_entries <"$work/all" | LC_ALL=C sort
+  } >"$BASELINE_FILE"
+  count=$(wc -l <"$work/all" | tr -d ' ')
+  rm -rf "$work"
+  echo "${GREEN}${BOLD}Baseline written:${RESET} $count finding(s) in $BASELINE_FILE"
+  echo "${DIM}From now on 'kotlin-lint lint' reports only new findings. Commit the file.${RESET}"
 }
 
 fix() {
@@ -174,7 +283,8 @@ case ${1:-} in
     else banner; usage; fi
     ;;
   menu) menu ;;
-  lint) lint "${2:-.}" ;;
+  lint) shift; lint "$@" ;;
+  baseline) baseline "${2:-.}" ;;
   fix) fix "${2:-.}" ;;
   selftest) selftest ;;
   version | --version | -v) version ;;

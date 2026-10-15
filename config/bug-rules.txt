@@ -1,0 +1,29 @@
+# Rules `kotlin-lint lint --bugs` treats as likely bugs rather than style.
+#
+#   detekt-set:<name>   every rule in that detekt rule set, read from the pinned detekt's
+#                       own default config, so the list always matches the detekt version
+#   <engine>:<rule>     one rule, exactly as it appears in [brackets] in kotlin-lint's output
+#
+# Formatting (ktlint standard:*) is never a bug class.
+
+detekt-set:potential-bugs
+detekt-set:exceptions
+detekt-set:coroutines
+detekt:EmptyCatchBlock
+
+# Jetpack Compose correctness (compose-rules). Each one changes behaviour, not just style:
+compose:lambda-param-in-effect                 # effect keeps calling a stale lambda after recomposition
+compose:mutable-state-autoboxing               # mutableStateOf(0) boxes; use mutableIntStateOf
+compose:remember-missing-check                 # state recreated on every recomposition
+compose:remember-content-missing-check         # movable content recreated on every recomposition
+compose:mutable-state-param-check              # MutableState parameter: shared, unclear ownership
+compose:mutable-params-check                   # mutable collection parameter: changes are not observed
+compose:vm-forwarding-check                    # ViewModel passed down: hard-wired state, breaks previews
+compose:vm-injection-check                     # ViewModel created inside a reusable composable
+compose:modifier-composed-check                # Modifier.composed: slow, being removed
+compose:modifier-reused-check                  # same Modifier applied to several children
+compose:modifier-not-used-at-root              # caller's modifier not applied to the root
+compose:modifier-clickable-order               # clickable before clip/shape: wrong touch area
+compose:content-slot-reused                    # content lambda emitted twice: state lost
+compose:content-emitter-returning-values-check # emits UI and returns a value: recomposition bugs
+compose:multiple-emitters-check                # several root emitters: layout depends on the caller
