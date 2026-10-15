@@ -4,7 +4,7 @@
   <img src="assets/logo.svg" alt="kotlin-lint: the Android robot. ktlint + detekt + Compose rules for Android. Same system, new rules.">
 </p>
 
-**One linter for Kotlin Android apps that runs the same on your laptop and in GitHub Actions.**
+**One linter for Kotlin Android apps.**
 
 ## What it is
 
