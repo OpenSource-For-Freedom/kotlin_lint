@@ -1,20 +1,93 @@
 # kotlin_lint
 
-Linting for Kotlin **Android** projects: ktlint (Android Studio style), detekt and the Jetpack Compose rules,
-with defaults that understand Compose. It runs the same way locally and in CI.
+**One linter for Kotlin Android apps that runs the same on your laptop and in GitHub Actions.**
 
-The Android defaults live in [`.editorconfig`](.editorconfig) and [`config/detekt.yml`](config/detekt.yml).
-See [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) for the roadmap.
+## What it is
 
-## Self-test
+`kotlin-lint` bundles three proven Kotlin linters behind one command, with defaults made for Android:
 
-`samples/android_app` (Jetpack Compose) and `samples/kotlin_actions` must lint clean, and `samples/violations` is
-deliberately bad code. The self-test lints all three and writes a Markdown report:
+- **ktlint**: formatting and style, set to Android Studio's style
+- **detekt**: code smells, complexity and likely bugs
+- **Jetpack Compose rules**: Compose mistakes, such as a missing `Modifier` parameter or a `MutableState` passed as a parameter
+
+## Why
+
+Android teams usually wire ktlint, detekt and Compose rules together by hand, then fight false positives:
+
+- `@Composable fun NotesScreen` flagged for its capital letter
+- `16.dp` flagged as a magic number
+- `@Preview` functions flagged as unused
+- the linter disagreeing with Android Studio's *Reformat Code*
+
+`kotlin-lint` ships defaults that already handle all of that. It runs the same way everywhere, like
+`actionlint` or `pylint`: same command, same config, same results locally and in CI.
+
+## What it does
+
+- Lints every `*.kt` and `*.kts` file, including Kotlin under `src/main/java` and your `build.gradle.kts` files
+- Uses Android Studio's formatting style, so *Reformat Code* and the linter agree
+- Checks Jetpack Compose code against the Compose API guidelines
+- Prints `file:line:col: message`, which shows up as inline annotations on pull requests
+- Fixes formatting automatically with `--fix`
+- Pins and checksum-verifies every engine it downloads
+
+It does not replace **Android Lint**. Keep running `./gradlew lint` for Android-specific checks
+(manifest, resources, API levels).
+
+## Status
+
+> **Early development.** The Android defaults and the self-test below work today.
+> The `kotlin-lint` command and the GitHub Action are being built. See the
+> [build plan](docs/BUILD_PLAN.md). Sections marked *planned* show how they will work.
+
+## Use it locally
+
+**Planned:**
 
 ```console
-./scripts/selftest.sh        # needs bash, curl and a JDK 17+; writes selftest-report.md
+kotlin-lint            # lint the current project
+kotlin-lint --fix      # fix formatting
 ```
 
-It passes only when the clean samples have zero findings **and** `violations` is flagged by every engine.
-CI runs the same script on Linux, macOS and Windows (`.github/workflows/selftest.yml`) and shows
-the report as the job summary.
+**Today:** copy [`.editorconfig`](.editorconfig) and [`config/detekt.yml`](config/detekt.yml) into your
+Android project root. Then run ktlint and detekt with them (needs Java 17+):
+
+```console
+ktlint "**/*.kt" "**/*.kts"
+detekt --config config/detekt.yml --build-upon-default-config
+```
+
+For the Compose checks, add the [compose-rules](https://mrmans0n.github.io/compose-rules/) ktlint
+ruleset to your ktlint setup. Android Studio reads the same `.editorconfig`, so the editor and the
+linter agree.
+
+## Use it in GitHub Actions
+
+**Planned:**
+
+```yaml
+# .github/workflows/lint.yml
+name: Lint
+on: [push, pull_request]
+
+jobs:
+  kotlin-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: opensource-for-freedom/kotlin_lint@v1
+```
+
+Problems appear as annotations on the pull request, and the job fails if any are found.
+This doesn't need a Gradle build or the Android SDK, so it is much faster than a full Android build.
+
+## Try it: the self-test
+
+The repo includes a small Jetpack Compose app (`samples/android_app`) that must lint clean, and
+deliberately bad code (`samples/violations`) that every engine must flag:
+
+```console
+./scripts/selftest.sh   # needs bash, curl and a JDK 17+; writes selftest-report.md
+```
+
+CI runs the same script on Linux, macOS and Windows and shows the Markdown report in the job summary.
