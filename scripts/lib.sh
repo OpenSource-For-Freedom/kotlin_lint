@@ -117,14 +117,62 @@ format_ktlint() {
   (cd "${BASE:-$ROOT}" && java -jar "$KTLINT" --format "${args[@]}" >/dev/null 2>&1) || true
 }
 
+# editorconfig_max_line_length <dir>: the max_line_length the project's .editorconfig files
+# give Kotlin files in <dir>, or nothing if none sets it. Mirrors EditorConfig lookup: files
+# from <dir> up to the filesystem root, stopping after one with root = true; nearer files
+# win, and later sections win within a file. Sections that can match a .kt file count:
+# [*], or any glob naming kt (such as [*.{kt,kts}] or [*.kt]).
+editorconfig_max_line_length() {
+  local dir files=() value=""
+  dir=$(cd "$1" && pwd)
+  while :; do
+    if [[ -f $dir/.editorconfig ]]; then
+      files=("$dir/.editorconfig" "${files[@]}")   # farthest first, so nearer files override
+      grep -qiE '^[[:space:]]*root[[:space:]]*=[[:space:]]*true' "$dir/.editorconfig" && break
+    fi
+    [[ $dir == / || $dir == "${dir%/*}" || -z $dir ]] && break
+    dir=${dir%/*}; [[ -z $dir ]] && dir=/
+  done
+  for f in "${files[@]}"; do
+    v=$(tr -d '\r' <"$f" | awk '
+      /^[[:space:]]*\[/ { s = $0; gsub(/[[:space:]]/, "", s); applies = (s == "[*]" || s ~ /kt/); next }
+      applies && tolower($0) ~ /^[[:space:]]*max_line_length[[:space:]]*=/ {
+        v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); sub(/[[:space:]]*([#;].*)?$/, "", v); found = v
+      }
+      END { if (found != "") print tolower(found) }')
+    [[ -n $v ]] && value=$v
+  done
+  echo "$value"
+}
+
+# detekt_line_length_config <dir> <out.yml>: when the project's .editorconfig sets
+# max_line_length, write a detekt config that makes MaxLineLength follow it ("off" turns the
+# rule off). Prints the path, or nothing when the project does not set it.
+detekt_line_length_config() {
+  local value
+  value=$(editorconfig_max_line_length "$1")
+  case $value in
+    off | unset) printf 'style:\n  MaxLineLength:\n    active: false\n' >"$2" ;;
+    '' ) return 0 ;;
+    *[!0-9]*) return 0 ;;   # not a number: leave detekt's default
+    *) printf 'style:\n  MaxLineLength:\n    active: true\n    maxLineLength: %s\n' "$value" >"$2" ;;
+  esac
+  echo "$2"
+}
+
 # lint_detekt <out> <dir>
 lint_detekt() {
-  local out=$1 input=$2 raw="$1.raw" base root
+  local out=$1 input=$2 raw="$1.raw" base root config
   base=${BASE:-$ROOT}
   root=$(native "$base")
   rm -f "$raw" "$out.xml"
+  # config/detekt.yml, then the project's line length on top (#3: one setting for both engines).
+  config=$(native "$DETEKT_CONFIG")
+  if [[ -d $base/$input ]] && extra=$(detekt_line_length_config "$base/$input" "$out.line-length.yml") && [[ -n $extra ]]; then
+    config="$config,$(native "$extra")"
+  fi
   (cd "$base" && java -jar "$DETEKT" --input "$input" --base-path "$root" --excludes "$EXCLUDES" \
-    --config "$(native "$DETEKT_CONFIG")" --build-upon-default-config \
+    --config "$config" --build-upon-default-config \
     --report "txt:$(native "$raw")" --report "xml:$(native "$out.xml")" >"$out.log" 2>&1) || true
   # No report means detekt did not run; never read that as "0 findings".
   if [[ ! -f $raw ]]; then
@@ -134,6 +182,29 @@ lint_detekt() {
   fi
   sed -E -e 's/ - Signature=.*$//' -e 's|\\|/|g' -e "s|$root/||" -e "s|$base/||" "$raw" \
     | grep -v '^$' >"$out" || true
+}
+
+# bug_rules: the rule tags (as printed in [brackets], e.g. detekt:SwallowedException or
+# compose:lambda-param-in-effect) that config/bug-rules.txt names. detekt-set:<name> lines
+# expand to every rule in that set of the pinned detekt's own default config. Cached.
+bug_rules() {
+  local cached=$CACHE/bug-rules-$DETEKT_VERSION-$(sha256 "$ROOT/config/bug-rules.txt" | cut -c1-12).txt jar=jar tmp sets
+  if [[ ! -f $cached ]]; then
+    [[ -n ${JAVA_HOME:-} && -x $JAVA_HOME/bin/jar ]] && jar=$JAVA_HOME/bin/jar
+    tmp=$(mktemp -d)
+    (cd "$tmp" && "$jar" xf "$(native "$DETEKT")" default-detekt-config.yml)
+    sets=$(tr -d '\r' <"$ROOT/config/bug-rules.txt" | sed -n 's/^detekt-set:\([a-z-]*\).*/\1/p' | tr '\n' ' ')
+    {
+      awk -v sets=" $sets " '
+        /^[a-z-]+:[[:space:]]*$/ { set = $1; sub(/:.*/, "", set); next }
+        /^  [A-Za-z]+:[[:space:]]*$/ && index(sets, " " set " ") { r = $1; sub(/:.*/, "", r); print "detekt:" r }
+      ' "$tmp/default-detekt-config.yml"
+      tr -d '\r' <"$ROOT/config/bug-rules.txt" | sed -e 's/#.*//' -e 's/[[:space:]]//g' | grep -E '^[a-z]+:' | grep -v '^detekt-set:'
+    } | LC_ALL=C sort -u >"$cached.part"
+    rm -rf "$tmp"
+    mv "$cached.part" "$cached"
+  fi
+  cat "$cached"
 }
 
 # Reads ktlint and/or detekt finding lines on stdin; prints "engine rule file:line", sorted, unique.
