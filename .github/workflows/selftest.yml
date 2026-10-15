@@ -5,6 +5,7 @@ name: Self-test
 # script a developer runs locally: ./scripts/selftest.sh
 on:
   push:
+    branches: [Primary]
   pull_request:
 
 permissions:

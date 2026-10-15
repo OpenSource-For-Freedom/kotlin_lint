@@ -58,11 +58,25 @@ run_ktlint() {
   wc -l <"$out" | tr -d ' '
 }
 
+# Paths handed to Java must be native. Git Bash on Windows converts plain path
+# arguments, but not one embedded in a value like "txt:/tmp/x", so convert explicitly.
+native() {
+  if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi
+}
+
 run_detekt() {
-  local name=$1 dir=$2 out="$WORK/$1.txt"
-  (cd "$ROOT" && java -jar "$DETEKT" --input "$dir" --base-path "$ROOT" \
-    --report "txt:$WORK/$name.raw" >/dev/null 2>&1) || true
-  sed -E -e 's/ - Signature=.*$//' -e "s|$ROOT/||" "$WORK/$name.raw" 2>/dev/null | grep -v '^$' >"$out" || true
+  local name=$1 dir=$2 out="$WORK/$1.txt" raw="$WORK/$1.raw" root
+  root=$(native "$ROOT")
+  (cd "$ROOT" && java -jar "$DETEKT" --input "$dir" --base-path "$root" \
+    --report "txt:$(native "$raw")" >"$WORK/$name.log" 2>&1) || true
+  # No report means detekt did not run; never read that as "0 findings".
+  if [[ ! -f $raw ]]; then
+    echo "detekt produced no report for $dir:" >&2
+    cat "$WORK/$name.log" >&2
+    exit 3
+  fi
+  sed -E -e 's/ - Signature=.*$//' -e 's|\\|/|g' -e "s|$root/||" -e "s|$ROOT/||" "$raw" \
+    | grep -v '^$' >"$out" || true
   wc -l <"$out" | tr -d ' '
 }
 
